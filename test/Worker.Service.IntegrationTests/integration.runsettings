@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <DOTNET_ENVIRONMENT>Integration</DOTNET_ENVIRONMENT>
+      <AWS_PROFILE>localstack</AWS_PROFILE>      
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>
