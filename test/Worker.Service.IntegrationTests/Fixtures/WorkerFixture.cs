@@ -48,7 +48,7 @@ namespace Worker.Service.IntegrationTests.Fixtures
             await PurgeQueueAsync();
         }
 
-        public async Task PurgeQueueAsync()
+        private async Task PurgeQueueAsync()
         {
             await sqsClient.PurgeQueueAsync(new PurgeQueueRequest
             {
@@ -58,37 +58,21 @@ namespace Worker.Service.IntegrationTests.Fixtures
 
         public async Task<string> PostMessageAsync(string messageBody, string groupId)
         {
-            var integrationId = Guid.NewGuid().ToString();
-            var sendMessageRequest = new SendMessageRequest
-            {
-                QueueUrl = queueUrl,
-                MessageBody = messageBody,
-                MessageGroupId = groupId,
-                MessageDeduplicationId = Guid.NewGuid().ToString(),
-                MessageAttributes = new Dictionary<string, MessageAttributeValue>
-                {
-                    {
-                        "IntegrationId", new MessageAttributeValue
-                        {
-                            DataType = "String",
-                            StringValue = integrationId
-                        }
-                    }
-                }
-            };
-
-            integrationMessageControl.AddMessage(integrationId, messageBody);
-            var response = await sqsClient.SendMessageAsync(sendMessageRequest);            
+            var (integrationId, sendMessageRequest) = 
+                integrationMessageControl
+                    .CreateIntegrationMessage(
+                        queueUrl, messageBody, groupId);            
+            await sqsClient.SendMessageAsync(sendMessageRequest);            
             return integrationId;
         }
 
-        public async Task WaitConsumeAsync(IEnumerable<string> messageIds, int timeoutInSeconds)
+        public async Task WaitConsumeAsync(IEnumerable<string> postedIds, int timeoutInSeconds)
         {
             var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutInSeconds));
             var delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutInSeconds), cancellationTokenSource.Token);
-            var processingTask = integrationMessageControl.WaitForMessagesToBeProcessedAsync(messageIds, cancellationTokenSource.Token);
+            var messageTasks = integrationMessageControl.WaitForMessagesProcessedAsync(postedIds, cancellationTokenSource.Token);
 
-            var completedTask = await Task.WhenAny(processingTask, delayTask);
+            var completedTask = await Task.WhenAny(messageTasks, delayTask);
 
             if (completedTask == delayTask)
             {
@@ -96,7 +80,7 @@ namespace Worker.Service.IntegrationTests.Fixtures
             }
 
             cancellationTokenSource.Cancel();
-            await processingTask; // Ensure any exceptions/cancellations are observed
+            await completedTask; // Ensure any exceptions/cancellations are observed
         }
 
         public async Task DisposeAsync()

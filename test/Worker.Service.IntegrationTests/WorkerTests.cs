@@ -20,14 +20,14 @@ namespace Worker.Service.IntegrationTests
                 "Message 2" 
             };
 
-            var messageIds = new List<string>();
+            var postedIds = new List<string>();
             foreach (var message in messages)
             {
-                var messageId = await fixture.PostMessageAsync(message, nameof(TestMessagesProcessing));
-                messageIds.Add(messageId);
+                var postedId = await fixture.PostMessageAsync(message, nameof(TestMessagesProcessing));
+                postedIds.Add(postedId);
             }
 
-            await fixture.WaitConsumeAsync(messageIds, 60);
+            await fixture.WaitConsumeAsync(postedIds, 60);
 
             // Verifique se as mensagens foram processadas
             // Adicione suas asserções aqui
@@ -43,14 +43,14 @@ namespace Worker.Service.IntegrationTests
                 "Message 4"
             };
 
-            var messageIds = new List<string>();
+            var postedIds = new List<string>();
             foreach (var message in messages)
             {
-                var messageId = await fixture.PostMessageAsync(message, nameof(TestMessagesProcessing2));
-                messageIds.Add(messageId);
+                var postedId = await fixture.PostMessageAsync(message, nameof(TestMessagesProcessing2));
+                postedIds.Add(postedId);
             }
 
-            await fixture.WaitConsumeAsync(messageIds, 60);
+            await fixture.WaitConsumeAsync(postedIds, 60);
 
             // Verifique se as mensagens foram processadas
             // Adicione suas asserções aqui

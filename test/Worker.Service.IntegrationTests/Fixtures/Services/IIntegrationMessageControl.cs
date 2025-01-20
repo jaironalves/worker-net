@@ -1,10 +1,12 @@
-﻿using Worker.Service.Services.Interfaces;
+﻿using Amazon.SQS.Model;
+using Worker.Service.Services.Interfaces;
 
 namespace Worker.Service.IntegrationTests.Fixtures.Services
 {
     internal interface IIntegrationMessageControl : IMessageProcessed
-    {
-        void AddMessage(string messageId, string messageBody);
-        Task WaitForMessagesToBeProcessedAsync(IEnumerable<string> messageIds, CancellationToken cancellationToken);
+    { 
+        (string, SendMessageRequest) CreateIntegrationMessage(string queueUrl, string messageBody, string groupId);
+
+        Task WaitForMessagesProcessedAsync(IEnumerable<string> messageIds, CancellationToken cancellationToken);
     }
 }

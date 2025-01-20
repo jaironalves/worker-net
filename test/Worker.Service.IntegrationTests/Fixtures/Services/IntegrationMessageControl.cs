@@ -1,5 +1,7 @@
-﻿using Amazon.SQS.Model;
+﻿using Amazon.SQS;
+using Amazon.SQS.Model;
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Worker.Service.Services.Interfaces;
 
 namespace Worker.Service.IntegrationTests.Fixtures.Services
@@ -9,63 +11,91 @@ namespace Worker.Service.IntegrationTests.Fixtures.Services
         public IntegrationMessageControl()
         {
             Id = Guid.NewGuid().ToString();    
-        }
+        }        
 
-        //private readonly BlockingCollection<Message> messagesProcessed = new();
-        private readonly BlockingCollection<string> messagesToProcess = new();
-
-        private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> messageCompletionSources = new();
+        private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> taskCompletationSources = new();
 
         public string Id { get; }
 
-        public void AddMessage(string id, string messageBody)
+        private void AddMessageTaskCompletationSource(string id, string messageBody)
         {
-            messagesToProcess.Add(id);            
-
             var tcs = new TaskCompletionSource<bool>();
-            messageCompletionSources.AddOrUpdate(id, tcs, (_, _) => tcs);
-            messageCompletionSources[id] = tcs;
+            taskCompletationSources.AddOrUpdate(id, tcs, (_, _) => tcs);
+            //taskCompletationSources[id] = tcs;
             Console.WriteLine($"Message {id} - {messageBody} CreateTaskSource - {Id}");
+        }
+
+        public (string, SendMessageRequest) CreateIntegrationMessage(
+            string queueUrl, string messageBody, string groupId)
+        {
+            var integrationId = Guid.NewGuid().ToString();
+            var sendMessageRequest = new SendMessageRequest
+            {
+                QueueUrl = queueUrl,
+                MessageBody = messageBody,
+                MessageGroupId = groupId,
+                MessageDeduplicationId = Guid.NewGuid().ToString(),
+                MessageAttributes = new Dictionary<string, MessageAttributeValue>
+                {
+                    {
+                        "IntegrationId", new MessageAttributeValue
+                        {
+                            DataType = "String",
+                            StringValue = integrationId
+                        }
+                    }
+                }
+            };
+            AddMessageTaskCompletationSource(integrationId, messageBody);
+            return (integrationId, sendMessageRequest);
         }
 
         public Task NotifyAsync(Message message)
         {
             Console.WriteLine($"Message {message.MessageId} - {message.Body} notify - {Id}");
-            //messagesProcessed.Add(message);
-            if (messageCompletionSources.TryGetValue(message.MessageId, out var tcs))
+
+            if (message.MessageAttributes.TryGetValue("IntegrationId", out var integrationIdAttribute))
             {
-                Console.WriteLine($"Message {message.MessageId} - {message.Body} SetResult - True");
-                if (!tcs.Task.IsCompleted)
-                    tcs.SetResult(true);
-                                
+                var integrationId = integrationIdAttribute.StringValue;
+                Console.WriteLine($"Extracted IntegrationId: {integrationId}");
+
+                if (taskCompletationSources.TryGetValue(integrationId, out var tcs))
+                {
+                    Console.WriteLine($"Message {integrationId} - {message.Body} SetResult - True");
+                    if (!tcs.Task.IsCompleted)
+                        tcs.SetResult(true);
+                }
+                else
+                {
+                    Console.WriteLine($"Message {integrationId} - {message.Body} Completation - NotFound");
+                }
             }
             else
             {
-                Console.WriteLine($"Message {message.MessageId} - {message.Body} Completation - NotFound");
+                Console.WriteLine($"Message {message.MessageId} - {message.Body} IntegrationId not found");
             }
+
             return Task.CompletedTask;
         }
 
-        public async Task WaitForMessagesToBeProcessedAsync(IEnumerable<string> messageIds, CancellationToken cancellationToken)
+        public async Task WaitForMessagesProcessedAsync(IEnumerable<string> integrationIds
+            , CancellationToken cancellationToken)
         {
-            var tasks = messageIds.Select(messageId =>
+            var taskSources = integrationIds.Select(integrationId =>
             {
-                if (!messageCompletionSources.TryGetValue(messageId, out var tcs))
-                {
-                    tcs = new TaskCompletionSource<bool>();
-                    messageCompletionSources[messageId] = tcs;
-                }
-                return tcs.Task;
-            }).ToArray();
+                if (!taskCompletationSources.TryGetValue(integrationId, out var tcs))                
+                    throw new InvalidOperationException($"Message {integrationId} not registred on integration");                
+
+                return tcs;
+            });
 
             using (cancellationToken.Register(() =>
             {
-                //foreach (var tcs in messageCompletionSources.Values)
-                //{
-                //    tcs.TrySetCanceled();
-                //}
+                foreach (var tcs in taskSources)                
+                    tcs.TrySetCanceled();                
             }))
             {
+                var tasks = taskSources.Select(tcs => tcs.Task).ToArray();
                 await Task.WhenAll(tasks);
             }
         }
